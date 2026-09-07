@@ -1,0 +1,19 @@
+# ===== 敏感信息（绝不上传）=====
+backend/.env
+mobile/lib/app_config.dart
+backend_deploy.tar.gz
+
+# ===== 本地工具链（数 GB，不入库）=====
+.tools/
+
+# ===== Python =====
+.venv/
+__pycache__/
+*.pyc
+backend/s.err
+backend/s.out
+backend/jizhang.db
+
+# ===== 系统/编辑器 =====
+.DS_Store
+Thumbs.db
