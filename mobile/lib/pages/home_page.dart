@@ -79,9 +79,17 @@ class _HomeTabState extends State<_HomeTab> with AutomaticKeepAliveClientMixin {
   void initState() {
     super.initState();
     _load();
+    AppState.onLedgerSwitched(_load); // 切换账本后自动刷新
+  }
+
+  @override
+  void dispose() {
+    AppState.offLedgerSwitched(_load);
+    super.dispose();
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;

@@ -34,9 +34,17 @@ class _StatsPageState extends State<StatsPage> with AutomaticKeepAliveClientMixi
   void initState() {
     super.initState();
     _load();
+    AppState.onLedgerSwitched(_load); // 切换账本后自动刷新
+  }
+
+  @override
+  void dispose() {
+    AppState.offLedgerSwitched(_load);
+    super.dispose();
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() => _loading = true);
     try {
       final results = await Future.wait([
@@ -80,7 +88,10 @@ class _StatsPageState extends State<StatsPage> with AutomaticKeepAliveClientMixi
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : ListView(
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(16),
               children: [
                 _topCard(),
@@ -100,6 +111,7 @@ class _StatsPageState extends State<StatsPage> with AutomaticKeepAliveClientMixi
                   _memberCard(),
                 ],
               ],
+            ),
             ),
     );
   }

@@ -48,10 +48,22 @@ class AppState {
     }
   }
 
+  // 账本切换监听：各数据页注册回调，切换账本后自动刷新数据
+  static final List<void Function()> _ledgerListeners = [];
+
+  static void onLedgerSwitched(void Function() cb) => _ledgerListeners.add(cb);
+
+  static void offLedgerSwitched(void Function() cb) => _ledgerListeners.remove(cb);
+
   static Future<void> setCurrentLedger(int id) async {
     currentLedgerId = id;
     final sp = await SharedPreferences.getInstance();
     await sp.setInt("ledger_id", id);
+    for (final cb in List.of(_ledgerListeners)) {
+      try {
+        cb();
+      } catch (_) {}
+    }
   }
 }
 
@@ -72,7 +84,8 @@ class Api {
     dio = Dio(BaseOptions(
       baseUrl: base,
       connectTimeout: const Duration(seconds: 10),
-      receiveTimeout: const Duration(seconds: 60),
+      // AI 解析偶发慢渠道可达 45s（后端上限），90s 保证能收到后端的友好超时提示
+      receiveTimeout: const Duration(seconds: 90),
     ));
     dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) {

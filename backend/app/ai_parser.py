@@ -38,6 +38,17 @@ TOOL_SCHEMA = {
 }
 
 
+# 全局复用的 HTTP 连接池：省去每次请求重建连接 + TLS 握手（约 0.2-0.5s/次）
+_client: Optional[httpx.AsyncClient] = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=httpx.Timeout(connect=10, read=45, write=10, pool=10))
+    return _client
+
+
 def build_system_prompt(today: date, expense_cats: list[str], income_cats: list[str]) -> str:
     return (
         f"你是一个纯记账工具，不是聊天助手。今天是 {today.isoformat()}（{['周一','周二','周三','周四','周五','周六','周日'][today.weekday()]}）。\n"
@@ -79,22 +90,31 @@ async def parse_text(
     ]
 
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(
-                f"{settings.AI_BASE_URL}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.AIHUBMIX_API_KEY}"},
-                json={
-                    "model": settings.AI_MODEL,
-                    "messages": messages,
-                    "tools": [TOOL_SCHEMA],
-                    "tool_choice": "auto",
-                    "temperature": 0.1,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        # 分层超时在 _get_client() 中统一配置：连接 10s 快速报错；AI 生成最多等 45s，
+        # 必须短于 App 端 receiveTimeout(90s)，保证用户收到友好提示而非 Dio 超时报错
+        client = _get_client()
+        resp = await client.post(
+            f"{settings.AI_BASE_URL}/chat/completions",
+            headers={"Authorization": f"Bearer {settings.AIHUBMIX_API_KEY}"},
+            json={
+                "model": settings.AI_MODEL,
+                "messages": messages,
+                "tools": [TOOL_SCHEMA],
+                "tool_choice": "auto",
+                "temperature": 0.1,
+                # 关闭深度思考：记账提取不需要推理链，实测 28s -> 3s
+                # aihubmix 同名模型背后有多个上游渠道，双参数提高关闭成功率
+                "enable_thinking": False,
+                "reasoning_effort": "none",
+                "max_tokens": 500,  # 回复话术 + 工具参数的上限，防偶发冗长
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
     except httpx.HTTPStatusError as e:
         return {"reply": f"AI 接口报错（{e.response.status_code}）：{e.response.text[:200]}", "drafts": []}
+    except httpx.TimeoutException:
+        return {"reply": "AI 响应超时了，再发一次试试（大概率马上就好）", "drafts": []}
     except (httpx.HTTPError, KeyError) as e:
         return {"reply": f"AI 服务连接失败：{e}", "drafts": []}
 

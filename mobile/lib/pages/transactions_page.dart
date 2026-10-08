@@ -27,9 +27,17 @@ class _TransactionsPageState extends State<TransactionsPage> with AutomaticKeepA
   void initState() {
     super.initState();
     _load();
+    AppState.onLedgerSwitched(_load); // 切换账本后自动刷新
+  }
+
+  @override
+  void dispose() {
+    AppState.offLedgerSwitched(_load);
+    super.dispose();
   }
 
   Future<void> _load() async {
+    if (!mounted) return;
     setState(() => _loading = true);
     try {
       final items = await Api.transactions(month: _monthStr, type: _typeFilter);
@@ -175,9 +183,17 @@ class _TransactionsPageState extends State<TransactionsPage> with AutomaticKeepA
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _items.isEmpty
-              ? Center(child: Text("本月暂无记录", style: TextStyle(color: Colors.grey[500])))
-              : ListView.builder(
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: _items.isEmpty
+                  ? ListView( // 空状态也支持下拉刷新
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.only(top: 120),
+                      children: [
+                        Center(child: Text("本月暂无记录", style: TextStyle(color: Colors.grey[500]))),
+                      ],
+                    )
+                  : ListView.builder(
                   padding: const EdgeInsets.only(bottom: 80, top: 8),
                   itemCount: keys.length,
                   itemBuilder: (_, i) {
@@ -223,6 +239,7 @@ class _TransactionsPageState extends State<TransactionsPage> with AutomaticKeepA
                     );
                   },
                 ),
+            ),
     );
   }
 
