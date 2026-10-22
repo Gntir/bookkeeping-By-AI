@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 
 import '../api_client.dart';
 import '../models.dart';
@@ -30,9 +34,17 @@ class ChatPage extends StatefulWidget {
 
 class _ChatPageState extends State<ChatPage> {
   final _input = TextEditingController();
+  final _focus = FocusNode();
   final _scroll = ScrollController();
   final List<ChatMessage> _messages = [];
   bool _sending = false;
+
+  // 语音输入状态
+  AudioRecorder? _recorder;
+  bool _recording = false;
+  bool _transcribing = false;
+  int _recordSeconds = 0;
+  Timer? _recordTimer;
 
   static const _hints = [
     "今天午饭花了35",
@@ -58,8 +70,92 @@ class _ChatPageState extends State<ChatPage> {
   @override
   void dispose() {
     _input.dispose();
+    _focus.dispose();
     _scroll.dispose();
+    _recordTimer?.cancel();
+    _recorder?.dispose();
     super.dispose();
+  }
+
+  /// 语音输入：点击麦克风开始录音，再点结束并识别，文字填入输入框（可修改后发送）
+  Future<void> _toggleVoice() async {
+    if (_transcribing) return;
+
+    if (!_recording) {
+      // ---- 开始录音 ----
+      final rec = AudioRecorder();
+      try {
+        if (!await rec.hasPermission()) {
+          rec.dispose();
+          _toast("需要麦克风权限，请在系统设置中允许");
+          return;
+        }
+        final dir = await getTemporaryDirectory();
+        await rec.start(
+          const RecordConfig(
+            encoder: AudioEncoder.wav, // 后端模型只认 wav/mp3
+            sampleRate: 16000,
+            numChannels: 1,
+          ),
+          path: "${dir.path}/voice_input.wav",
+        );
+        _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (mounted) setState(() => _recordSeconds++);
+        });
+        setState(() {
+          _recorder = rec;
+          _recording = true;
+          _recordSeconds = 0;
+        });
+      } catch (e) {
+        rec.dispose();
+        _toast("无法开始录音：$e");
+      }
+      return;
+    }
+
+    // ---- 结束录音 -> 上传识别 ----
+    final rec = _recorder!;
+    final seconds = _recordSeconds;
+    _recordTimer?.cancel();
+    final path = await rec.stop();
+    await rec.dispose();
+    setState(() {
+      _recorder = null;
+      _recording = false;
+    });
+
+    if (seconds < 1) {
+      _toast("说话时间太短啦");
+      return;
+    }
+    if (path == null) {
+      _toast("录音失败，再试一次");
+      return;
+    }
+
+    setState(() => _transcribing = true);
+    try {
+      final text = await Api.uploadVoice(path);
+      if (text.trim().isEmpty) {
+        _toast("没听清，再试一次？");
+      } else {
+        _input.text = text.trim();
+        // 光标移到末尾并聚焦，方便用户检查/修改后发送
+        _input.selection = TextSelection.collapsed(offset: _input.text.length);
+        if (mounted) FocusScope.of(context).requestFocus(_focus);
+      }
+    } catch (e) {
+      _toast("识别失败：$e");
+    } finally {
+      if (mounted) setState(() => _transcribing = false);
+    }
+  }
+
+  void _toast(String msg) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
   }
 
   /// 从消息列表构建 AI 上下文（跳过欢迎语/错误对，只取最近 12 条控制 token）
@@ -265,10 +361,36 @@ class _ChatPageState extends State<ChatPage> {
                   Expanded(
                     child: TextField(
                       controller: _input,
+                      focusNode: _focus,
                       onSubmitted: (_) => _send(),
+                      enabled: !_recording, // 录音时锁定键盘输入
                       textInputAction: TextInputAction.send,
-                      decoration: const InputDecoration(hintText: "说说你花了什么钱…"),
+                      decoration: InputDecoration(
+                        hintText: _recording
+                            ? "● 录音中 $_recordSeconds 秒，点 ■ 结束"
+                            : (_transcribing ? "识别中…" : "说说你花了什么钱…"),
+                      ),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  // 麦克风：空闲=灰色、录音中=红色方块、识别中=转圈
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: _recording ? Colors.red : Colors.grey.shade200,
+                    child: _transcribing
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : IconButton(
+                            icon: Icon(
+                              _recording ? Icons.stop : Icons.mic_none,
+                              color: _recording ? Colors.white : Colors.grey.shade700,
+                              size: 22,
+                            ),
+                            onPressed: _toggleVoice,
+                          ),
                   ),
                   const SizedBox(width: 8),
                   CircleAvatar(
@@ -276,7 +398,7 @@ class _ChatPageState extends State<ChatPage> {
                     backgroundColor: Theme.of(context).colorScheme.primary,
                     child: IconButton(
                       icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                      onPressed: () => _send(),
+                      onPressed: (_sending || _recording || _transcribing) ? null : () => _send(),
                     ),
                   ),
                 ],

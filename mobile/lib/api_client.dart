@@ -347,4 +347,13 @@ class Api {
     );
     return path;
   }
+
+  /// 语音识别：上传录音文件（wav），返回转写文字
+  static Future<String> uploadVoice(String filePath) async {
+    final form = FormData.fromMap({
+      "file": await MultipartFile.fromFile(filePath, filename: "voice.wav"),
+    });
+    final r = await dio.post("/api/ai/voice", data: form);
+    return ((r.data as Map)["text"] ?? "").toString();
+  }
 }

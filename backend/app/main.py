@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, SessionLocal, engine
 from .models import Category  # noqa: F401 (确保建表)
-from .routers import ai, app_update, auth, categories, ledgers, salary, stats, transactions
+from .routers import ai, app_update, auth, categories, ledgers, salary, stats, transactions, voice
 from .scheduler import start_scheduler
 from .seed import PRESET_CATEGORIES
 
@@ -20,7 +20,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (auth, ledgers, categories, transactions, ai, salary, stats, app_update):
+for r in (auth, ledgers, categories, transactions, ai, salary, stats, app_update, voice):
     app.include_router(r.router)
 
 

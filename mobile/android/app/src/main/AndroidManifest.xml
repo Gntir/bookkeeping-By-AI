@@ -3,6 +3,8 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- App 内更新：下载完成后唤起系统安装器（Android 8+ 需要用户在弹窗里允许"未知来源"） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- 语音记账：麦克风录音 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <application
         android:label="AI记账"
         android:name="${applicationName}"

@@ -1,7 +1,7 @@
 name: ai_jizhang
 description: AI 多人记账 App（Demo）
 publish_to: "none"
-version: 0.1.0+6
+version: 0.1.0+10
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -16,6 +16,7 @@ dependencies:
   package_info_plus: ^8.0.0
   open_filex: ^4.5.0
   path_provider: ^2.1.0
+  record: ^7.0.0  # 5.x 版本矩阵有 bug(record_linux 与 platform_interface 不兼容)，7.x 配套完整
 
 dev_dependencies:
   flutter_test:
