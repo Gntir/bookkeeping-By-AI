@@ -13,9 +13,11 @@ __pycache__/
 backend/s.err
 backend/s.out
 backend/jizhang.db
+backend/release/
 
 # ===== 系统/编辑器 =====
 .DS_Store
 Thumbs.db
 .trae/
 .idea/
+release.json

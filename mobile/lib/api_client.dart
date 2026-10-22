@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_config.dart';
@@ -321,5 +322,29 @@ class Api {
     final d = await _get("/api/stats/monthly",
         query: {"ledger_id": AppState.currentLedgerId, "year": year});
     return (d as List).map((e) => MonthlyStat.fromJson(e)).toList();
+  }
+
+  // ===== App 内更新 =====
+
+  /// 检查更新：返回 {available, version, note}
+  static Future<Map<String, dynamic>> checkUpdate() async {
+    final d = await _get("/api/app/version");
+    return Map<String, dynamic>.from(d);
+  }
+
+  /// 下载新 APK，返回本地文件路径；onProgress(已收字节, 总字节) 用于进度条
+  static Future<String> downloadApk(void Function(int, int) onProgress) async {
+    final dir = await getTemporaryDirectory();
+    final path = "${dir.path}/ai_jizhang_update.apk";
+    await dio.download(
+      "/api/app/download",
+      path,
+      onReceiveProgress: onProgress,
+      options: Options(
+        receiveTimeout: const Duration(minutes: 10), // APK 50MB+，放宽接收超时
+      ),
+      deleteOnError: true,
+    );
+    return path;
   }
 }

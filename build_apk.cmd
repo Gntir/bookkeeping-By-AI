@@ -9,4 +9,6 @@ set "PATH=D:\traeproj\JZproject\.tools\flutter\bin;%JAVA_HOME%\bin;%ANDROID_HOME
 cd /d D:\traeproj\JZproject\mobile
 powershell -NoProfile -ExecutionPolicy Bypass -File "D:\traeproj\JZproject\bump_version.ps1"
 call flutter.bat build apk --release
-echo BUILD_EXIT: %ERRORLEVEL%
+set "BEXIT=%ERRORLEVEL%"
+echo BUILD_EXIT: %BEXIT%
+exit /b %BEXIT%

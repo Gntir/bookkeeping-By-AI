@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../api_client.dart';
 import '../models.dart';
+import '../update_service.dart';
 import 'chat_page.dart';
 import 'settings_page.dart';
 import 'stats_page.dart';
@@ -80,6 +81,10 @@ class _HomeTabState extends State<_HomeTab> with AutomaticKeepAliveClientMixin {
     super.initState();
     _load();
     AppState.onLedgerSwitched(_load); // 切换账本后自动刷新
+    // 启动 3 秒后静默检查更新（有新版才弹窗，失败不打扰）
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) UpdateService.checkAndPrompt(context);
+    });
   }
 
   @override

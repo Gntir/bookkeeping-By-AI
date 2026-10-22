@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../api_client.dart';
 import '../models.dart';
+import '../update_service.dart';
 import 'login_page.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -138,6 +139,11 @@ class _SettingsPageState extends State<SettingsPage> with AutomaticKeepAliveClie
                   title: const Text("服务器地址"),
                   subtitle: Text(Api.baseUrl, style: const TextStyle(fontSize: 12)),
                   onTap: _editBaseUrl,
+                ),
+                ListTile(
+                  leading: const Icon(Icons.system_update_alt_outlined),
+                  title: const Text("检查更新"),
+                  onTap: () => UpdateService.checkAndPrompt(context, manual: true),
                 ),
                 ListTile(
                   leading: const Icon(Icons.logout, color: Colors.red),
