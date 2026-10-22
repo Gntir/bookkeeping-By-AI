@@ -7,7 +7,7 @@ call "%~dp0build_apk.cmd"
 if errorlevel 1 (echo Build FAILED, abort release. & exit /b 1)
 cd /d "%~dp0"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0make_release.ps1"
-scp mobile\build\app\outputs\flutter-apk\app-release.apk root@154.8.178.27:/root/jz/backend/release/app-release.apk
-scp release.json root@154.8.178.27:/root/jz/backend/release/release.json
+scp mobile\build\app\outputs\flutter-apk\app-release.apk root@154.8.178.27:/root/intresting_project/bookkeeping/backend/release/app-release.apk
+scp release.json root@154.8.178.27:/root/intresting_project/bookkeeping/backend/release/release.json
 if errorlevel 1 (echo Upload FAILED. & exit /b 1)
 echo Release uploaded. Users will see the update prompt on next app launch.
