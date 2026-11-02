@@ -45,6 +45,9 @@ class _ChatPageState extends State<ChatPage> {
   bool _transcribing = false;
   int _recordSeconds = 0;
   Timer? _recordTimer;
+  bool _slideCancel = false; // 录音中手指上滑 → 松手取消
+  bool _recordStarting = false; // 长按后启动中（权限/录音器初始化）
+  bool _pendingRelease = false; // 启动期间手指已松开
 
   static const _hints = [
     "今天午饭花了35",
@@ -77,44 +80,60 @@ class _ChatPageState extends State<ChatPage> {
     super.dispose();
   }
 
-  /// 语音输入：点击麦克风开始录音，再点结束并识别，文字填入输入框（可修改后发送）
-  Future<void> _toggleVoice() async {
-    if (_transcribing) return;
-
-    if (!_recording) {
-      // ---- 开始录音 ----
-      final rec = AudioRecorder();
-      try {
-        if (!await rec.hasPermission()) {
-          rec.dispose();
-          _toast("需要麦克风权限，请在系统设置中允许");
-          return;
-        }
-        final dir = await getTemporaryDirectory();
-        await rec.start(
-          const RecordConfig(
-            encoder: AudioEncoder.wav, // 后端模型只认 wav/mp3
-            sampleRate: 16000,
-            numChannels: 1,
-          ),
-          path: "${dir.path}/voice_input.wav",
-        );
-        _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-          if (mounted) setState(() => _recordSeconds++);
-        });
-        setState(() {
-          _recorder = rec;
-          _recording = true;
-          _recordSeconds = 0;
-        });
-      } catch (e) {
+  /// 语音输入（微信式长按说话）：长按麦克风开始录音，松手识别，上滑取消
+  Future<void> _startRecording() async {
+    if (_transcribing || _recording || _recordStarting) return;
+    _recordStarting = true;
+    final rec = AudioRecorder();
+    try {
+      if (!await rec.hasPermission()) {
         rec.dispose();
-        _toast("无法开始录音：$e");
+        _toast("需要麦克风权限，请在系统设置中允许");
+        return;
       }
+      final dir = await getTemporaryDirectory();
+      await rec.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav, // 后端模型只认 wav/mp3
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+        path: "${dir.path}/voice_input.wav",
+      );
+      // 手指在权限弹窗/启动期间已松开：直接停止，当作太短
+      if (_pendingRelease) {
+        _pendingRelease = false;
+        await rec.stop();
+        await rec.dispose();
+        _toast("说话时间太短啦");
+        return;
+      }
+      _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => _recordSeconds++);
+      });
+      setState(() {
+        _recorder = rec;
+        _recording = true;
+        _recordSeconds = 0;
+        _slideCancel = false;
+      });
+    } catch (e) {
+      rec.dispose();
+      _toast("无法开始录音：$e");
+    } finally {
+      _recordStarting = false;
+    }
+  }
+
+  /// 松手：正常结束并上传识别；cancel=true（上滑/手势中断）则丢弃
+  Future<void> _finishRecording({bool cancel = false}) async {
+    // 启动期间松手：记下标记，等启动完成立即停止
+    if (_recordStarting) {
+      _pendingRelease = true;
       return;
     }
+    if (!_recording) return;
 
-    // ---- 结束录音 -> 上传识别 ----
     final rec = _recorder!;
     final seconds = _recordSeconds;
     _recordTimer?.cancel();
@@ -123,8 +142,13 @@ class _ChatPageState extends State<ChatPage> {
     setState(() {
       _recorder = null;
       _recording = false;
+      _slideCancel = false;
     });
 
+    if (cancel) {
+      _toast("已取消");
+      return;
+    }
     if (seconds < 1) {
       _toast("说话时间太短啦");
       return;
@@ -371,30 +395,48 @@ class _ChatPageState extends State<ChatPage> {
                       textInputAction: TextInputAction.send,
                       decoration: InputDecoration(
                         hintText: _recording
-                            ? "● 录音中 $_recordSeconds 秒，点 ■ 结束"
+                            ? (_slideCancel
+                                ? "▲ 松开手指，取消这次录音"
+                                : "● 录音中 $_recordSeconds 秒，松手识别（上滑取消）")
                             : (_transcribing ? "识别中…" : "说说你花了什么钱…"),
+                        hintStyle: _recording && _slideCancel
+                            ? const TextStyle(color: Colors.red)
+                            : null,
                       ),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // 麦克风：空闲=灰色、录音中=红色方块、识别中=转圈
-                  CircleAvatar(
-                    radius: 24,
-                    backgroundColor: _recording ? Colors.red : Colors.grey.shade200,
-                    child: _transcribing
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : IconButton(
-                            icon: Icon(
+                  // 麦克风（微信式）：长按说话、松手识别、上滑取消；点按给提示
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onLongPressStart: (_) => _startRecording(),
+                    onLongPressMoveUpdate: (d) {
+                      // 手指上滑离开按钮约 70px → 进入取消模式，滑回来恢复
+                      final c = d.localPosition.dy < -70;
+                      if (c != _slideCancel && mounted) {
+                        setState(() => _slideCancel = c);
+                      }
+                    },
+                    onLongPressEnd: (_) => _finishRecording(cancel: _slideCancel),
+                    onLongPressCancel: () => _finishRecording(cancel: true),
+                    onTap: () => _toast("长按麦克风说话，松手识别，上滑取消"),
+                    child: CircleAvatar(
+                      radius: 24,
+                      backgroundColor: _recording
+                          ? (_slideCancel ? Colors.red.shade800 : Colors.red)
+                          : Colors.grey.shade200,
+                      child: _transcribing
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(
                               _recording ? Icons.stop : Icons.mic_none,
                               color: _recording ? Colors.white : Colors.grey.shade700,
                               size: 22,
                             ),
-                            onPressed: _toggleVoice,
-                          ),
+                    ),
                   ),
                   const SizedBox(width: 8),
                   CircleAvatar(
