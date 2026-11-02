@@ -135,12 +135,6 @@ class _SettingsPageState extends State<SettingsPage> with AutomaticKeepAliveClie
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.dns_outlined),
-                  title: const Text("服务器地址"),
-                  subtitle: Text(Api.baseUrl, style: const TextStyle(fontSize: 12)),
-                  onTap: _editBaseUrl,
-                ),
-                ListTile(
                   leading: const Icon(Icons.system_update_alt_outlined),
                   title: const Text("检查更新"),
                   onTap: () => UpdateService.checkAndPrompt(context, manual: true),
@@ -287,17 +281,6 @@ class _SettingsPageState extends State<SettingsPage> with AutomaticKeepAliveClie
         ),
       ),
     );
-  }
-
-  Future<void> _editBaseUrl() async {
-    final url = await _inputDialog("服务器地址", "例如 http://192.168.1.100:8000",
-        initial: Api.baseUrl);
-    if (url == null || url.trim().isEmpty) return;
-    await Api.setBaseUrl(url.trim());
-    setState(() {});
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("已保存")));
-    }
   }
 
   Future<void> _logout() async {

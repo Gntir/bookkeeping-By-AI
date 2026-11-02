@@ -77,6 +77,11 @@ async def main():
         await run(client, cfg, "给我讲个笑话", "闲聊→拒绝0笔")
         # --- 回归：日期换算 ---
         await run(client, cfg, "昨天打车回家28.5", f"日期={yesterday} 1笔")
+        # --- 回归：历史含函数调用摘要时，新账单必须调函数而非文字模仿 ---
+        await run(client, cfg, "10月16号充电，21.69元", "历史含摘要→仍记1笔", history=[
+            {"role": "user", "content": "昨天打车回家28.5"},
+            {"role": "assistant", "content": "记好啦：交通支出28.5元\n（已调用 save_transaction：支出28.5元 交通（打车）" + yesterday + "）"},
+        ])
 
 
 if __name__ == "__main__":

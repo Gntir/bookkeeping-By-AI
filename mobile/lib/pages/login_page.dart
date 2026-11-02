@@ -60,38 +60,6 @@ class _LoginPageState extends State<LoginPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  Future<void> _editServer() async {
-    final controller = TextEditingController(text: Api.baseUrl);
-    final url = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("服务器地址"),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: "例如 http://192.168.1.100:8000",
-            labelText: "地址（http://开头，结尾不带/）",
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("取消")),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text("保存"),
-          ),
-        ],
-      ),
-    );
-    if (url == null || url.isEmpty) return;
-    try {
-      await Api.setBaseUrl(url);
-      if (mounted) _toast("已保存：$url");
-    } catch (_) {
-      if (mounted) _toast("地址格式有误");
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -118,14 +86,6 @@ class _LoginPageState extends State<LoginPage> {
                 style: TextStyle(color: Colors.grey[600]),
               ),
               const SizedBox(height: 8),
-              TextButton.icon(
-                onPressed: _editServer,
-                icon: const Icon(Icons.dns_outlined, size: 16),
-                label: Text(
-                  Api.baseUrl,
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ),
               const SizedBox(height: 36),
               TextField(
                 controller: _phone,

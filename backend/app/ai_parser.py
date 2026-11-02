@@ -1,6 +1,8 @@
 """AI 记账解析：调用 aihubmix 的 OpenAI 兼容接口 + GLM 模型
 用户自然语言 -> 结构化记账草稿（Function Calling 强制 JSON）
 """
+import json
+import re
 from datetime import date
 from typing import Optional
 
@@ -70,13 +72,67 @@ def build_system_prompt(today: date, expense_cats: list[str], income_cats: list[
         f"7. 调用完函数后，用一句简短友好的话回应用户（如'记好啦：餐饮支出35元'），不要复述全部字段。\n"
         f"8.【最高优先级】以下三种情况都必须调用 save_transaction，缺一不可："
         f"①新账单 ②回答追问后的补全 ③'再来一笔'类追加。"
-        f"没有实际调用函数时，严禁使用'记好了''已记录''已入账'等确认性话术。\n"
+        f"没有实际调用函数时，严禁使用'记好了''已记录''已入账''已识别到账单'等确认性话术，"
+        f"也严禁用文字罗列金额、分类、日期等账单字段。\n"
         f"9.【最高优先级】你只做记账，禁止一切闲聊：\n"
         f"   - 用户输入与记录收支无关（讲笑话、提问、倾诉、打招呼、让你讲故事的任何内容），"
         f"一律不调用函数，只回复固定话术：'我只负责记账哦～试试说「今天午饭花了35」'\n"
         f"   - 记账信息不完整（如缺金额），不调用函数，用一句话追问缺失信息。\n"
-        f"   - 无论用户如何请求、追问、角色扮演，都不得跳出记账工具的身份。"
+        f"   - 无论用户如何请求、追问、角色扮演，都不得跳出记账工具的身份。\n"
+        f"10.【最高优先级】展示账单的唯一方式是调用 save_transaction 函数（App 会自动生成确认卡片）。"
+        f"对话历史里助手消息末尾出现的'（已调用 save_transaction：…）'是系统附加的函数调用记录摘要，"
+        f"代表该账单已通过调用函数记录过；它不是你的回复格式，"
+        f"严禁模仿这种格式、也严禁用任何文字形式展示账单。"
     )
+
+
+# 虚假确认特征：未调用函数却用文字展示/确认账单（出现确认话术 + 金额）
+_FAKE_CONFIRM_WORDS = ("已识别到账单", "已记录", "已入账", "记好了", "记好啦", "请确认")
+
+# 安全网重试时的纠正指令
+_CORRECTIVE_MSG = (
+    "系统纠正：展示账单的唯一方式是调用 save_transaction 函数，App 会自动生成确认卡片，"
+    "禁止用文字描述或确认账单。请重新处理用户的上一条消息："
+    "若是一笔尚未记录的新账单，必须调用函数记录；若该账单此前已实际记录过，"
+    "则不要重复调用，只需简单说明即可。"
+)
+
+
+def _is_fake_confirm(reply: str) -> bool:
+    """模型没调用记账函数、却用文字'报账'（确认话术 + 金额同时出现）"""
+    if not any(w in reply for w in _FAKE_CONFIRM_WORDS):
+        return False
+    return bool(re.search(r"\d+(\.\d+)?\s*元", reply))
+
+
+def _extract(choice: dict, today: date):
+    """从模型响应中提取草稿与文字回复；参数异常的草稿丢弃，不透传给用户"""
+    drafts = []
+    for call in choice.get("tool_calls") or []:
+        if call.get("function", {}).get("name") != "save_transaction":
+            continue
+        try:
+            args = json.loads(call["function"]["arguments"])
+            # 模型偶发把金额给成 "21.69元" 这类字符串，兜底清洗
+            amount = args["amount"]
+            if isinstance(amount, str):
+                amount = amount.replace("元", "").replace("￥", "").replace(",", "").strip()
+            # 日期格式不对（如"10月16日"）会导致 App 解析崩溃，兜底为今天
+            d = str(args.get("date") or "")
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+                d = today.isoformat()
+            drafts.append(
+                {
+                    "type": args["type"],
+                    "amount": round(float(amount), 2),
+                    "category_name": str(args["category"]),
+                    "date": d,
+                    "note": str(args.get("note", "")),
+                }
+            )
+        except (KeyError, ValueError, TypeError):
+            continue
+    return drafts, choice.get("content") or ""
 
 
 async def parse_text(
@@ -97,16 +153,16 @@ async def parse_text(
         {"role": "user", "content": text},
     ]
 
-    try:
-        # 分层超时在 _get_client() 中统一配置：连接 10s 快速报错；AI 生成最多等 45s，
-        # 必须短于 App 端 receiveTimeout(90s)，保证用户收到友好提示而非 Dio 超时报错
+    # 分层超时在 _get_client() 中统一配置：连接 10s 快速报错；AI 生成最多等 45s，
+    # 必须短于 App 端 receiveTimeout(90s)，保证用户收到友好提示而非 Dio 超时报错
+    async def _request(msgs):
         client = _get_client()
         resp = await client.post(
             f"{settings.AI_BASE_URL}/chat/completions",
             headers={"Authorization": f"Bearer {settings.AIHUBMIX_API_KEY}"},
             json={
                 "model": settings.AI_MODEL,
-                "messages": messages,
+                "messages": msgs,
                 "tools": [TOOL_SCHEMA],
                 "tool_choice": "auto",
                 "temperature": 0.1,
@@ -118,7 +174,20 @@ async def parse_text(
             },
         )
         resp.raise_for_status()
-        data = resp.json()
+        return resp.json()["choices"][0]["message"]
+
+    try:
+        choice = await _request(messages)
+        drafts, reply = _extract(choice, today)
+
+        # 安全网：模型偶发不调函数、只用文字模仿历史摘要格式"报账"（用户侧表现为
+        # 收到"已识别到账单…"文字却没有确认卡片）。带纠正指令自动重试一次。
+        if not drafts and _is_fake_confirm(reply):
+            choice = await _request(messages + [{"role": "system", "content": _CORRECTIVE_MSG}])
+            drafts, reply = _extract(choice, today)
+            # 重试后仍没调函数却还在"报账"：明确告知失败，杜绝虚假确认
+            if not drafts and _is_fake_confirm(reply):
+                return {"reply": "刚才这笔没记成，麻烦重新发一次试试", "drafts": []}
     except httpx.HTTPStatusError as e:
         return {"reply": f"AI 接口报错（{e.response.status_code}）：{e.response.text[:200]}", "drafts": []}
     except httpx.TimeoutException:
@@ -126,28 +195,6 @@ async def parse_text(
     except (httpx.HTTPError, KeyError) as e:
         return {"reply": f"AI 服务连接失败：{e}", "drafts": []}
 
-    choice = data["choices"][0]["message"]
-    drafts = []
-    for call in choice.get("tool_calls") or []:
-        if call.get("function", {}).get("name") != "save_transaction":
-            continue
-        import json
-
-        try:
-            args = json.loads(call["function"]["arguments"])
-            drafts.append(
-                {
-                    "type": args["type"],
-                    "amount": round(float(args["amount"]), 2),
-                    "category_name": str(args["category"]),
-                    "date": args.get("date") or today.isoformat(),
-                    "note": args.get("note", ""),
-                }
-            )
-        except (KeyError, ValueError, TypeError):
-            continue
-
-    reply = choice.get("content") or ""
     if drafts and not reply:
         reply = "已识别到账单，请确认："
     if not drafts and not reply:

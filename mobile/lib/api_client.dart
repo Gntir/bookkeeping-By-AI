@@ -98,14 +98,6 @@ class Api {
     ));
   }
 
-  static Future<void> setBaseUrl(String url) async {
-    final sp = await SharedPreferences.getInstance();
-    await sp.setString("base_url", url);
-    dio.options.baseUrl = url;
-  }
-
-  static String get baseUrl => dio.options.baseUrl;
-
   static Map<String, dynamic> _handle(Response resp) {
     return resp.data as Map<String, dynamic>;
   }
@@ -150,7 +142,7 @@ class Api {
     if (data is Map && data["detail"] != null) return data["detail"].toString();
     if (e.type == DioExceptionType.connectionTimeout ||
         e.type == DioExceptionType.connectionError) {
-      return "连不上服务器，请检查地址（真机需用电脑局域网IP）";
+      return "连不上服务器，请检查网络后重试";
     }
     return "请求失败：${e.message}";
   }

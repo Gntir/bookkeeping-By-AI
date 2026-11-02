@@ -177,7 +177,11 @@ class _ChatPageState extends State<ChatPage> {
                   "${d.type == "expense" ? "支出" : "收入"}${d.amount.toStringAsFixed(d.amount == d.amount.truncateToDouble() ? 0 : 2)}元 ${d.categoryName}"
                   "${d.note.isEmpty ? "" : "(${d.note})"} ${DateFormat("yyyy-MM-dd").format(d.date)}")
               .join("；");
-          content = content.isEmpty ? "已识别到账单：$parts" : "$content\n已识别到账单：$parts";
+          // 历史摘要格式很关键：必须明确"调用了函数"，否则模型会学着
+          // 用纯文字报账而不调用 save_transaction（曾导致只回文字不出卡片）
+          content = content.isEmpty
+              ? "（已调用 save_transaction：$parts）"
+              : "$content\n（已调用 save_transaction：$parts）";
         }
         if (content.isNotEmpty) hist.add({"role": "assistant", "content": content});
       }
