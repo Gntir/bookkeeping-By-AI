@@ -326,6 +326,9 @@ class Api {
     return Map<String, dynamic>.from(d);
   }
 
+  /// 供系统 DownloadManager 使用的绝对下载地址（系统下载不认 dio 的 baseUrl）
+  static String get downloadUrl => "${dio.options.baseUrl}/api/app/download";
+
   /// 下载新 APK（断点续传 + 失败自动重试），返回本地文件路径；onProgress(已收字节, 总字节)
   /// 后端 FileResponse 支持 Range，切后台/网络抖动中断后可从断点继续，不用从头下
   static Future<String> downloadApk(String version, void Function(int, int) onProgress) async {
