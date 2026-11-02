@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import 'api_client.dart';
 
@@ -57,6 +58,9 @@ class UpdateService {
                 const SizedBox(height: 8),
                 Text("已下载 ${(progress * 100).toStringAsFixed(0)}%",
                     style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                const SizedBox(height: 4),
+                Text("下载中请保持 App 在前台；意外中断会自动断点续传",
+                    style: TextStyle(color: Colors.grey[400], fontSize: 11)),
               ],
               if (errorMsg.isNotEmpty)
                 Text(errorMsg, style: const TextStyle(color: Colors.red)),
@@ -72,8 +76,9 @@ class UpdateService {
               FilledButton(
                 onPressed: () async {
                   setState(() => downloading = true);
+                  await WakelockPlus.enable(); // 下载期间保持唤醒，防息屏断网
                   try {
-                    final path = await Api.downloadApk((count, total) {
+                    final path = await Api.downloadApk(version, (count, total) {
                       if (total > 0) setState(() => progress = count / total);
                     });
                     if (ctx.mounted) Navigator.of(ctx).pop();
@@ -86,9 +91,10 @@ class UpdateService {
                   } catch (e) {
                     setState(() {
                       downloading = false;
-                      progress = 0;
                       errorMsg = "下载失败：$e，请重试";
                     });
+                  } finally {
+                    await WakelockPlus.disable();
                   }
                 },
                 child: const Text("立即更新"),

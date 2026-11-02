@@ -1,3 +1,5 @@
+import 'dart:io' show File, FileMode;
+
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -324,20 +326,70 @@ class Api {
     return Map<String, dynamic>.from(d);
   }
 
-  /// 下载新 APK，返回本地文件路径；onProgress(已收字节, 总字节) 用于进度条
-  static Future<String> downloadApk(void Function(int, int) onProgress) async {
+  /// 下载新 APK（断点续传 + 失败自动重试），返回本地文件路径；onProgress(已收字节, 总字节)
+  /// 后端 FileResponse 支持 Range，切后台/网络抖动中断后可从断点继续，不用从头下
+  static Future<String> downloadApk(String version, void Function(int, int) onProgress) async {
     final dir = await getTemporaryDirectory();
-    final path = "${dir.path}/ai_jizhang_update.apk";
-    await dio.download(
-      "/api/app/download",
-      path,
-      onReceiveProgress: onProgress,
-      options: Options(
-        receiveTimeout: const Duration(minutes: 10), // APK 50MB+，放宽接收超时
-      ),
-      deleteOnError: true,
-    );
-    return path;
+    final path = "${dir.path}/ai_jizhang_update_$version.apk";
+    final file = File(path);
+
+    // 清理其他版本的残留断点包，避免跨版本续传把包写坏
+    await for (final e in dir.list()) {
+      if (e is File && e.path.contains("ai_jizhang_update") && e.path != path) {
+        await e.delete();
+      }
+    }
+
+    Object? lastErr;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      final int downloaded =
+          (await file.exists()) ? await file.length() : 0;
+      try {
+        final resp = await dio.get(
+          "/api/app/download",
+          options: Options(
+            responseType: ResponseType.stream,
+            receiveTimeout: const Duration(minutes: 10), // APK 50MB+，放宽接收超时
+            headers: downloaded > 0 ? {"Range": "bytes=$downloaded-"} : null,
+          ),
+        );
+        // 断点已等于全量（416）：文件本身已完整
+        if (resp.statusCode == 416) return path;
+        int startByte = downloaded;
+        // 服务器忽略 Range 返回了全量（200）：从头覆盖写，计数归零
+        if (resp.statusCode == 200 && startByte > 0) {
+          await file.writeAsBytes([], flush: true);
+          startByte = 0;
+        }
+        // 总大小：Content-Range("bytes a-b/total") 优先，退回 Content-Length+已有断点
+        final contentRange = resp.headers.value("content-range");
+        final int total = contentRange != null
+            ? (int.tryParse(contentRange.split("/").last) ?? 0)
+            : (int.tryParse(resp.headers.value("content-length") ?? "") ?? 0) + startByte;
+
+        int received = startByte;
+        final body = resp.data! as ResponseBody;
+        final sink = file.openWrite(mode: FileMode.append);
+        try {
+          await for (final chunk in body.stream) {
+            sink.add(chunk);
+            received += chunk.length;
+            onProgress(received, total);
+          }
+          await sink.flush();
+          await sink.close();
+        } catch (e) {
+          await sink.close();
+          rethrow;
+        }
+        if (total > 0 && received < total) throw Exception("下载中断，已收 $received/$total");
+        return path;
+      } catch (e) {
+        lastErr = e; // 记录后进入下一轮断点重试
+      }
+      if (attempt < 3) await Future.delayed(const Duration(seconds: 2));
+    }
+    throw "下载失败（已自动重试3次）：$lastErr";
   }
 
   /// 语音识别：上传录音文件（wav），返回转写文字
