@@ -1,6 +1,7 @@
 # ===== 敏感信息（绝不上传）=====
 backend/.env
 mobile/lib/app_config.dart
+deploy_target.cmd
 backend_deploy.tar.gz
 
 # ===== 本地工具链（数 GB，不入库）=====
