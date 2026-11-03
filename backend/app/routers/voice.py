@@ -50,16 +50,20 @@ async def voice_to_text(
         "reasoning_effort": "none",  # 纯转写不需要思考，实测提速明显
     }
 
-    try:
-        client = _get_client()
-        resp = await client.post(
-            f"{settings.AI_BASE_URL}/chat/completions",
-            headers={"Authorization": f"Bearer {settings.AIHUBMIX_API_KEY}"},
-            json=payload,
-        )
-        resp.raise_for_status()
-        text = (resp.json()["choices"][0]["message"].get("content") or "").strip()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"语音识别失败：{e}")
+    # aihubmix 偶发渠道故障（超时/5xx），自动重试一次提升成功率
+    last_err = None
+    for attempt in (1, 2):
+        try:
+            client = _get_client()
+            resp = await client.post(
+                f"{settings.AI_BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.AIHUBMIX_API_KEY}"},
+                json=payload,
+            )
+            resp.raise_for_status()
+            text = (resp.json()["choices"][0]["message"].get("content") or "").strip()
+            return {"text": text}
+        except Exception as e:
+            last_err = e
 
-    return {"text": text}
+    raise HTTPException(status_code=502, detail=f"语音识别失败：{last_err}")

@@ -400,7 +400,11 @@ class Api {
     final form = FormData.fromMap({
       "file": await MultipartFile.fromFile(filePath, filename: "voice.wav"),
     });
-    final r = await dio.post("/api/ai/voice", data: form);
-    return ((r.data as Map)["text"] ?? "").toString();
+    try {
+      final r = await dio.post("/api/ai/voice", data: form);
+      return ((r.data as Map)["text"] ?? "").toString();
+    } on DioException catch (e) {
+      throw _err(e); // toast 里显示后端友好 detail，而不是原始 DioException
+    }
   }
 }
